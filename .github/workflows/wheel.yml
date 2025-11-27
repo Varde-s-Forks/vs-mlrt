@@ -1,0 +1,109 @@
+name: Auto Build Wheel
+
+on:
+  schedule:
+    - cron: "0 */12 * * *" # every 12 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VAPOURSYNTH_VERSION: 72
+  PYTHON_VERSION: 3.14
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      last-release: ${{ steps.last-release.outputs.version }}
+      new-version: ${{ steps.upstream-ver.outputs.version }}
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Pull upstream and merge
+        run: |
+          git remote add upstream https://github.com/AmusementClub/vs-mlrt.git || true
+          git fetch upstream
+          git merge upstream/master --no-edit || echo "No changes to merge"
+
+      - name: Commit merge if needed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet; then
+            git commit -am "Auto-sync upstream $(date -u +'%Y-%m-%d %H:%M:%S')"
+            git push
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      # Compare version
+      - name: Get version number
+        id: upstream-ver
+        run: echo "version=v$(uvx hatch version)" >> $GITHUB_OUTPUT
+
+      - name: Get latest release version
+        id: last-release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const releases = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            if (releases.data.length === 0) {
+              return core.setOutput("version", "");
+            }
+            core.setOutput("version", releases.data[0].tag_name);
+
+  build:
+    needs: sync
+    if: needs.sync.outputs.last-release != needs.sync.outputs.new-version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Building vsmlrt-script ${{ needs.sync.outputs.new-version }}
+        run: |
+          echo "Last release ${{ needs.sync.outputs.last-release }}"
+          echo "New version ${{ needs.sync.outputs.new-version }}"
+
+      - name: Checkout updated repo
+        uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      - name: Build wheel
+        run: uvx hatch build
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: dist
+          path: |
+            dist/*.tar.gz
+            dist/*.whl
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.sync.outputs.new-version }}
+          files: |
+            dist/*.tar.gz
+            dist/*.whl

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vsmlrt"
+description = "Auto-packaged version of upstream vs-mlrt script"
+requires-python = ">=3.8"
+license = "GPL-3.0-or-later"
+license-files = ["LICENCE"]
+dependencies = ["VapourSynth"]
+dynamic = ["version"]
+
+[tool.hatch.version]
+path = "scripts/vsmlrt.py"
+
+[tool.hatch.build]
+include = ["scripts/vsmlrt.py"]
+
+[tool.hatch.build.sources]
+scripts = ""
